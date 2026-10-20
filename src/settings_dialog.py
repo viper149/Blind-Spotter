@@ -1,0 +1,329 @@
+"""Sleek dark-mode Settings dialog for Blind-Spotter.
+Allows configuring alert cooldowns, screen locking, camera index, and detection thresholds.
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+import tkinter as tk
+from tkinter import ttk, messagebox
+from pathlib import Path
+from typing import Optional
+
+from src.config import ConfigManager
+from src.notifier import default_notifier
+
+logger = logging.getLogger("blind_spotter.settings")
+
+_dialog_lock = threading.Lock()
+_active_dialog_root: Optional[tk.Tk] = None
+
+
+class SettingsDialog:
+    """Dark-themed graphical configuration dialog."""
+
+    def __init__(self, config_mgr: ConfigManager) -> None:
+        self.config_mgr = config_mgr
+        self.config = config_mgr.config
+        self.root: Optional[tk.Tk] = None
+        self._icon_img: Optional[tk.PhotoImage] = None
+
+    def show(self) -> None:
+        """Launch the dialog in a dedicated thread to preserve tray responsiveness."""
+        threading.Thread(target=self._run_tk, daemon=True, name="SettingsGUIThread").start()
+
+    def _run_tk(self) -> None:
+        global _active_dialog_root
+
+        with _dialog_lock:
+            if _active_dialog_root is not None:
+                try:
+                    _active_dialog_root.lift()
+                    _active_dialog_root.focus_force()
+                    return
+                except Exception:
+                    _active_dialog_root = None
+
+            self.root = tk.Tk()
+            _active_dialog_root = self.root
+
+        try:
+            self._build_ui()
+            self.root.mainloop()
+        finally:
+            with _dialog_lock:
+                _active_dialog_root = None
+
+    def _build_ui(self) -> None:
+        if not self.root:
+            return
+
+        self.root.title("Blind-Spotter Settings")
+        self.root.geometry("460x560")
+        self.root.resizable(False, False)
+
+        # Set window icon
+        icon_path = Path(__file__).resolve().parent.parent / "assets" / "icon.png"
+        if icon_path.exists():
+            try:
+                self._icon_img = tk.PhotoImage(file=str(icon_path))
+                self.root.iconphoto(False, self._icon_img)
+            except Exception as e:
+                logger.debug("Could not set window icon: %s", e)
+
+        # Dark theme palette
+        bg_dark = "#12141a"
+        bg_card = "#1a1e27"
+        fg_white = "#f3f4f6"
+        fg_muted = "#9ca3af"
+        accent_blue = "#38bdf8"
+        accent_green = "#10b981"
+        border_color = "#2e3646"
+
+        self.root.configure(bg=bg_dark)
+
+        # Center on screen
+        self.root.update_idletasks()
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        x = (screen_w - 460) // 2
+        y = (screen_h - 560) // 2
+        self.root.geometry(f"+{x}+{y}")
+
+        # Top Header
+        header_frame = tk.Frame(self.root, bg=bg_dark, pady=16)
+        header_frame.pack(fill="x", padx=24)
+
+        title_lbl = tk.Label(
+            header_frame,
+            text="🛡️ Blind-Spotter",
+            font=("Segoe UI", 16, "bold"),
+            bg=bg_dark,
+            fg=accent_blue,
+        )
+        title_lbl.pack(anchor="w")
+
+        subtitle_lbl = tk.Label(
+            header_frame,
+            text="Stealthy Onlooker & Shoulder-Surfing Detection • An Ashnif Arnob Product",
+            font=("Segoe UI", 8),
+            bg=bg_dark,
+            fg=fg_muted,
+        )
+        subtitle_lbl.pack(anchor="w", pady=(2, 0))
+
+        # Main Card Container
+        card = tk.Frame(self.root, bg=bg_card, bd=1, relief="flat", highlightbackground=border_color, highlightthickness=1)
+        card.pack(fill="both", expand=True, padx=24, pady=(0, 16))
+
+        content = tk.Frame(card, bg=bg_card, padx=16, pady=16)
+        content.pack(fill="both", expand=True)
+
+        # 1. Cooldown Slider
+        cooldown_lbl = tk.Label(content, text="Alert Cooldown (Seconds):", font=("Segoe UI", 9, "bold"), bg=bg_card, fg=fg_white)
+        cooldown_lbl.pack(anchor="w")
+
+        self.cooldown_var = tk.IntVar(value=self.config.cooldown_seconds)
+        cooldown_val_lbl = tk.Label(content, text=f"{self.config.cooldown_seconds}s", font=("Segoe UI", 9), bg=bg_card, fg=accent_blue)
+        cooldown_val_lbl.pack(anchor="e")
+
+        def on_cooldown_change(val: str) -> None:
+            cooldown_val_lbl.config(text=f"{int(float(val))}s")
+
+        cooldown_slider = tk.Scale(
+            content,
+            from_=3,
+            to=60,
+            orient="horizontal",
+            variable=self.cooldown_var,
+            bg=bg_card,
+            fg=fg_white,
+            troughcolor=bg_dark,
+            activebackground=accent_blue,
+            highlightthickness=0,
+            command=on_cooldown_change,
+        )
+        cooldown_slider.pack(fill="x", pady=(0, 12))
+
+        # 2. Consecutive Confirmation Frames
+        frames_lbl = tk.Label(content, text="Consecutive Confirmation Frames (Anti-Flicker):", font=("Segoe UI", 9, "bold"), bg=bg_card, fg=fg_white)
+        frames_lbl.pack(anchor="w")
+
+        self.frames_var = tk.IntVar(value=self.config.consecutive_frames_required)
+        frames_val_lbl = tk.Label(content, text=f"{self.config.consecutive_frames_required} frames", font=("Segoe UI", 9), bg=bg_card, fg=accent_blue)
+        frames_val_lbl.pack(anchor="e")
+
+        def on_frames_change(val: str) -> None:
+            frames_val_lbl.config(text=f"{int(float(val))} frames")
+
+        frames_slider = tk.Scale(
+            content,
+            from_=1,
+            to=5,
+            orient="horizontal",
+            variable=self.frames_var,
+            bg=bg_card,
+            fg=fg_white,
+            troughcolor=bg_dark,
+            activebackground=accent_blue,
+            highlightthickness=0,
+            command=on_frames_change,
+        )
+        frames_slider.pack(fill="x", pady=(0, 12))
+
+        # 3. Detection Confidence Threshold
+        conf_lbl = tk.Label(content, text="Detection Confidence Threshold:", font=("Segoe UI", 9, "bold"), bg=bg_card, fg=fg_white)
+        conf_lbl.pack(anchor="w")
+
+        self.conf_var = tk.DoubleVar(value=self.config.confidence_threshold)
+        conf_val_lbl = tk.Label(content, text=f"{int(self.config.confidence_threshold * 100)}%", font=("Segoe UI", 9), bg=bg_card, fg=accent_blue)
+        conf_val_lbl.pack(anchor="e")
+
+        def on_conf_change(val: str) -> None:
+            conf_val_lbl.config(text=f"{int(float(val) * 100)}%")
+
+        conf_slider = tk.Scale(
+            content,
+            from_=0.2,
+            to=0.9,
+            resolution=0.05,
+            orient="horizontal",
+            variable=self.conf_var,
+            bg=bg_card,
+            fg=fg_white,
+            troughcolor=bg_dark,
+            activebackground=accent_blue,
+            highlightthickness=0,
+            command=on_conf_change,
+        )
+        conf_slider.pack(fill="x", pady=(0, 12))
+
+        # 4. Camera Index
+        cam_frame = tk.Frame(content, bg=bg_card)
+        cam_frame.pack(fill="x", pady=(0, 12))
+
+        cam_lbl = tk.Label(cam_frame, text="Camera Index (0 = Default Webcam):", font=("Segoe UI", 9, "bold"), bg=bg_card, fg=fg_white)
+        cam_lbl.pack(side="left")
+
+        self.cam_var = tk.IntVar(value=self.config.camera_index)
+        cam_spin = tk.Spinbox(
+            cam_frame,
+            from_=0,
+            to=5,
+            textvariable=self.cam_var,
+            width=5,
+            bg=bg_dark,
+            fg=fg_white,
+            buttonbackground=bg_card,
+            highlightthickness=1,
+            highlightbackground=border_color,
+        )
+        cam_spin.pack(side="right")
+
+        # 5. Checkboxes (Audio & Screen Lock)
+        self.sound_var = tk.BooleanVar(value=self.config.play_sound)
+        sound_chk = tk.Checkbutton(
+            content,
+            text="🔊 Play warning chime on alert",
+            variable=self.sound_var,
+            bg=bg_card,
+            fg=fg_white,
+            selectcolor=bg_dark,
+            activebackground=bg_card,
+            activeforeground=fg_white,
+            font=("Segoe UI", 9),
+        )
+        sound_chk.pack(anchor="w", pady=(0, 6))
+
+        self.lock_var = tk.BooleanVar(value=self.config.lock_screen_on_alert)
+        lock_chk = tk.Checkbutton(
+            content,
+            text="🔒 Automatically lock Windows workstation on alert",
+            variable=self.lock_var,
+            bg=bg_card,
+            fg=fg_white,
+            selectcolor=bg_dark,
+            activebackground=bg_card,
+            activeforeground=fg_white,
+            font=("Segoe UI", 9),
+        )
+        lock_chk.pack(anchor="w")
+
+        # Bottom Button Bar
+        btn_frame = tk.Frame(self.root, bg=bg_dark, pady=4)
+        btn_frame.pack(fill="x", padx=24, pady=(0, 16))
+
+        test_btn = tk.Button(
+            btn_frame,
+            text="🔔 Test Alert",
+            command=self._test_alert,
+            bg="#374151",
+            fg=fg_white,
+            activebackground="#4b5563",
+            activeforeground=fg_white,
+            bd=0,
+            padx=12,
+            pady=6,
+            font=("Segoe UI", 9),
+            relief="flat",
+            cursor="hand2",
+        )
+        test_btn.pack(side="left")
+
+        save_btn = tk.Button(
+            btn_frame,
+            text="Save Settings",
+            command=self._save_settings,
+            bg=accent_green,
+            fg="#064e3b",
+            activebackground="#34d399",
+            activeforeground="#064e3b",
+            bd=0,
+            padx=16,
+            pady=6,
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            cursor="hand2",
+        )
+        save_btn.pack(side="right", padx=(8, 0))
+
+        cancel_btn = tk.Button(
+            btn_frame,
+            text="Cancel",
+            command=self.root.destroy,
+            bg="#27272a",
+            fg=fg_muted,
+            activebackground="#3f3f46",
+            activeforeground=fg_white,
+            bd=0,
+            padx=12,
+            pady=6,
+            font=("Segoe UI", 9),
+            relief="flat",
+            cursor="hand2",
+        )
+        cancel_btn.pack(side="right")
+
+    def _test_alert(self) -> None:
+        """Trigger a safe test alert with sound and toast (without locking computer)."""
+        default_notifier.trigger_onlooker_alert(
+            title="🔔 Blind-Spotter Test Alert",
+            message="Test successful! Detection and notifications are working properly.",
+            lock_screen=False,
+            play_sound=self.sound_var.get(),
+        )
+
+    def _save_settings(self) -> None:
+        """Commit updated values to config.json."""
+        self.config_mgr.update(
+            cooldown_seconds=int(self.cooldown_var.get()),
+            consecutive_frames_required=int(self.frames_var.get()),
+            confidence_threshold=round(float(self.conf_var.get()), 2),
+            camera_index=int(self.cam_var.get()),
+            play_sound=bool(self.sound_var.get()),
+            lock_screen_on_alert=bool(self.lock_var.get()),
+        )
+        logger.info("Settings updated via GUI dialog.")
+        if self.root:
+            self.root.destroy()

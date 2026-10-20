@@ -1,0 +1,9 @@
+{
+  "cooldown_seconds": 5,
+  "lock_screen_on_alert": false,
+  "confidence_threshold": 0.5,
+  "camera_index": 0,
+  "sample_interval": 0.7,
+  "consecutive_frames_required": 2,
+  "play_sound": true
+}
