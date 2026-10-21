@@ -194,72 +194,76 @@ class OnlookerDetector:
         return self._paused
 
     def _detection_loop(self) -> None:
-        """Continuous low-rate sampling loop with resilient camera auto-reconnect."""
+        """Continuous low-latency sampling loop with resilient camera auto-reconnect and crash guards."""
         cap: Optional[cv2.VideoCapture] = None
         current_camera_idx: Optional[int] = None
         consecutive_read_failures: int = 0
 
         while self._running:
-            if self._paused:
-                if cap is not None:
-                    cap.release()
-                    cap = None
-                    current_camera_idx = None
-                    consecutive_read_failures = 0
-                time.sleep(0.5)
-                continue
-
-            target_camera_idx = self.config.camera_index
-
-            # If camera index changed dynamically from settings, reopen capture
-            if cap is not None and current_camera_idx != target_camera_idx:
-                logger.info(
-                    "Camera index changed from %s to %d. Switching webcam...",
-                    current_camera_idx,
-                    target_camera_idx,
-                )
-                cap.release()
-                cap = None
-                current_camera_idx = None
-                consecutive_read_failures = 0
-
-            # Ensure camera is opened
-            if cap is None or not cap.isOpened():
-                camera_idx = target_camera_idx
-                # DirectShow backend on Windows is faster and avoids popups
-                cap = cv2.VideoCapture(camera_idx, cv2.CAP_DSHOW)
-                if not cap.isOpened():
-                    # Fallback to default backend
-                    cap = cv2.VideoCapture(camera_idx)
-
-                if not cap.isOpened():
-                    logger.warning("Unable to open camera index %d. Retrying in 2 seconds...", camera_idx)
-                    time.sleep(2.0)
+            try:
+                if self._paused:
+                    if cap is not None:
+                        cap.release()
+                        cap = None
+                        current_camera_idx = None
+                        consecutive_read_failures = 0
+                    time.sleep(0.5)
                     continue
 
-                current_camera_idx = camera_idx
-                consecutive_read_failures = 0
-                # Set low resolution for minimal CPU & memory usage (640x480)
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                target_camera_idx = self.config.camera_index
 
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                consecutive_read_failures += 1
-                logger.debug("Failed to grab camera frame (failure %d).", consecutive_read_failures)
-                if consecutive_read_failures >= 5:
-                    logger.warning("Multiple consecutive camera read failures. Resetting video capture handle...")
+                # If camera index changed dynamically from settings, reopen capture
+                if cap is not None and current_camera_idx != target_camera_idx:
+                    logger.info(
+                        "Camera index changed from %s to %d. Switching webcam...",
+                        current_camera_idx,
+                        target_camera_idx,
+                    )
                     cap.release()
                     cap = None
                     current_camera_idx = None
                     consecutive_read_failures = 0
-                time.sleep(0.5)
-                continue
 
-            # Successful frame read
-            consecutive_read_failures = 0
+                # Ensure camera is opened
+                if cap is None or not cap.isOpened():
+                    camera_idx = target_camera_idx
+                    # DirectShow backend on Windows is faster and avoids popups
+                    cap = cv2.VideoCapture(camera_idx, cv2.CAP_DSHOW)
+                    if not cap.isOpened():
+                        # Fallback to default backend
+                        cap = cv2.VideoCapture(camera_idx)
 
-            try:
+                    if not cap.isOpened():
+                        logger.warning("Unable to open camera index %d. Retrying in 2 seconds...", camera_idx)
+                        time.sleep(2.0)
+                        continue
+
+                    current_camera_idx = camera_idx
+                    consecutive_read_failures = 0
+                    # Set low resolution for minimal CPU & memory usage (640x480)
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    # Zero-latency: eliminate DirectShow internal 5-frame lag buffer
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+                # Flush hardware buffer to guarantee reading the instantaneous current frame
+                cap.grab()
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    consecutive_read_failures += 1
+                    logger.debug("Failed to grab camera frame (failure %d).", consecutive_read_failures)
+                    if consecutive_read_failures >= 5:
+                        logger.warning("Multiple consecutive camera read failures. Resetting video capture handle...")
+                        cap.release()
+                        cap = None
+                        current_camera_idx = None
+                        consecutive_read_failures = 0
+                    time.sleep(0.3)
+                    continue
+
+                # Successful frame read
+                consecutive_read_failures = 0
+
                 faces = self._detect_faces(frame)
                 num_faces = len(faces)
                 self._latest_face_count = num_faces
@@ -296,9 +300,10 @@ class OnlookerDetector:
                             self.on_alert()
 
             except Exception as e:
-                logger.error("Error during face detection: %s", e)
+                logger.error("Error during detection loop: %s", e, exc_info=True)
+                time.sleep(0.5)
 
-            # Sleep between samples (~1-2 FPS rate)
+            # Sleep between samples (~4-5 FPS rate for ultra-low latency)
             time.sleep(self.config.sample_interval)
 
         if cap is not None:

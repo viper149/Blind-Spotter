@@ -66,6 +66,20 @@ def setup_logging() -> None:
     console_handler.setLevel(console_level)
     root_logger.addHandler(console_handler)
 
+    # Global unhandled crash guards to prevent silent process termination
+    def handle_unhandled_exception(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+        logging.getLogger("blind_spotter.main").critical(
+            "UNHANDLED EXCEPTION PREVENTED:",
+            exc_info=(exc_type, exc_value, exc_traceback),
+        )
+
+    sys.excepthook = handle_unhandled_exception
+    if hasattr(threading, "excepthook"):
+        threading.excepthook = lambda args: handle_unhandled_exception(args.exc_type, args.exc_value, args.exc_traceback)
+
 
 def main() -> None:
     # 0. Check if invoked in standalone settings mode (isolated Tcl/Tk process)

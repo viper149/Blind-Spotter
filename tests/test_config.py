@@ -15,7 +15,7 @@ class TestAppConfig(unittest.TestCase):
         self.assertFalse(cfg.lock_screen_on_alert)
         self.assertAlmostEqual(cfg.confidence_threshold, 0.5)
         self.assertEqual(cfg.camera_index, 0)
-        self.assertAlmostEqual(cfg.sample_interval, 0.7)
+        self.assertAlmostEqual(cfg.sample_interval, 0.2)
         self.assertEqual(cfg.consecutive_frames_required, 2)
         self.assertTrue(cfg.play_sound)
 
@@ -35,7 +35,7 @@ class TestAppConfig(unittest.TestCase):
         self.assertEqual(cfg.cooldown_seconds, 1)
         self.assertAlmostEqual(cfg.confidence_threshold, 1.0)
         self.assertEqual(cfg.camera_index, 0)
-        self.assertAlmostEqual(cfg.sample_interval, 0.2)
+        self.assertAlmostEqual(cfg.sample_interval, 0.1)
         self.assertEqual(cfg.consecutive_frames_required, 1)
         self.assertTrue(cfg.lock_screen_on_alert)
         self.assertFalse(cfg.play_sound)

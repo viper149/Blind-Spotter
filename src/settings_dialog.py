@@ -149,8 +149,9 @@ class SettingsDialog:
             return
 
         self.root.title("Blind-Spotter Settings")
-        self.root.geometry("480x620")
-        self.root.resizable(False, False)
+        self.root.geometry("520x720")
+        self.root.minsize(500, 680)
+        self.root.resizable(True, True)
 
         # Set window icon
         icon_path = get_resource_path("assets/icon.png")
@@ -176,13 +177,85 @@ class SettingsDialog:
         self.root.update_idletasks()
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
-        x = max(0, (screen_w - 480) // 2)
-        y = max(0, (screen_h - 620) // 2)
-        self.root.geometry(f"+{x}+{y}")
+        x = max(0, (screen_w - 520) // 2)
+        y = max(0, (screen_h - 720) // 2)
+        self.root.geometry(f"520x720+{x}+{y}")
 
-        # Top Header
-        header_frame = tk.Frame(self.root, bg=bg_dark, pady=12)
-        header_frame.pack(fill="x", padx=24)
+        # 1. DOCK BOTTOM BUTTON BAR FIRST (Guarantees buttons are NEVER cut off by DPI scaling)
+        btn_frame = tk.Frame(self.root, bg=bg_dark, pady=6)
+        btn_frame.pack(side="bottom", fill="x", padx=24, pady=(10, 18))
+
+        test_btn = tk.Button(
+            btn_frame,
+            text="🔔 Test Alert",
+            command=self._test_alert,
+            bg="#374151",
+            fg=fg_white,
+            activebackground="#4b5563",
+            activeforeground=fg_white,
+            bd=0,
+            padx=12,
+            pady=8,
+            font=("Segoe UI", 9),
+            relief="flat",
+            cursor="hand2",
+        )
+        test_btn.pack(side="left")
+
+        logs_btn = tk.Button(
+            btn_frame,
+            text="📂 Open Logs",
+            command=self._open_logs,
+            bg="#374151",
+            fg=fg_white,
+            activebackground="#4b5563",
+            activeforeground=fg_white,
+            bd=0,
+            padx=12,
+            pady=8,
+            font=("Segoe UI", 9),
+            relief="flat",
+            cursor="hand2",
+        )
+        logs_btn.pack(side="left", padx=(8, 0))
+
+        save_btn = tk.Button(
+            btn_frame,
+            text="Save Settings",
+            command=self._save_settings,
+            bg=accent_green,
+            fg="#064e3b",
+            activebackground="#34d399",
+            activeforeground="#064e3b",
+            bd=0,
+            padx=18,
+            pady=8,
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            cursor="hand2",
+        )
+        save_btn.pack(side="right", padx=(8, 0))
+
+        cancel_btn = tk.Button(
+            btn_frame,
+            text="Cancel",
+            command=self.root.destroy,
+            bg="#27272a",
+            fg=fg_muted,
+            activebackground="#3f3f46",
+            activeforeground=fg_white,
+            bd=0,
+            padx=12,
+            pady=8,
+            font=("Segoe UI", 9),
+            relief="flat",
+            cursor="hand2",
+        )
+        cancel_btn.pack(side="right")
+
+        # 2. TOP HEADER
+        header_frame = tk.Frame(self.root, bg=bg_dark, pady=10)
+        header_frame.pack(side="top", fill="x", padx=24)
 
         title_lbl = tk.Label(
             header_frame,
@@ -202,14 +275,14 @@ class SettingsDialog:
         )
         subtitle_lbl.pack(anchor="w", pady=(2, 0))
 
-        # Main Card Container
+        # 3. MAIN CARD CONTAINER (Expands in remaining middle area)
         card = tk.Frame(self.root, bg=bg_card, bd=1, relief="flat", highlightbackground=border_color, highlightthickness=1)
-        card.pack(fill="both", expand=True, padx=24, pady=(0, 12))
+        card.pack(side="top", fill="both", expand=True, padx=24, pady=(0, 8))
 
-        content = tk.Frame(card, bg=bg_card, padx=16, pady=14)
+        content = tk.Frame(card, bg=bg_card, padx=18, pady=14)
         content.pack(fill="both", expand=True)
 
-        # 1. Cooldown Slider
+        # 1. Alert Cooldown Slider
         cooldown_lbl = tk.Label(content, text="Alert Cooldown (Seconds):", font=("Segoe UI", 9, "bold"), bg=bg_card, fg=fg_white)
         cooldown_lbl.pack(anchor="w")
 
@@ -233,18 +306,48 @@ class SettingsDialog:
             highlightthickness=0,
             command=on_cooldown_change,
         )
-        cooldown_slider.pack(fill="x", pady=(0, 10))
+        cooldown_slider.pack(fill="x", pady=(0, 8))
 
-        # 2. Consecutive Confirmation Frames
-        frames_lbl = tk.Label(content, text="Consecutive Confirmation Frames (Anti-Flicker):", font=("Segoe UI", 9, "bold"), bg=bg_card, fg=fg_white)
+        # 2. Reaction Speed / Sampling Interval (Real-time speed)
+        speed_lbl = tk.Label(content, text="Reaction Speed (Webcam Sampling Interval):", font=("Segoe UI", 9, "bold"), bg=bg_card, fg=fg_white)
+        speed_lbl.pack(anchor="w")
+
+        self.interval_var = tk.DoubleVar(value=round(self.config.sample_interval, 2))
+        speed_desc = "⚡ Ultra Fast" if self.config.sample_interval <= 0.2 else ("🚀 Fast" if self.config.sample_interval <= 0.4 else "🔋 Balanced")
+        speed_val_lbl = tk.Label(content, text=f"{round(self.config.sample_interval, 2)}s ({speed_desc})", font=("Segoe UI", 9), bg=bg_card, fg=accent_blue)
+        speed_val_lbl.pack(anchor="e")
+
+        def on_speed_change(val: str) -> None:
+            v = round(float(val), 2)
+            desc = "⚡ Ultra Fast" if v <= 0.2 else ("🚀 Fast" if v <= 0.4 else "🔋 Balanced")
+            speed_val_lbl.config(text=f"{v}s ({desc})")
+
+        speed_slider = tk.Scale(
+            content,
+            from_=0.1,
+            to=1.0,
+            resolution=0.05,
+            orient="horizontal",
+            variable=self.interval_var,
+            bg=bg_card,
+            fg=fg_white,
+            troughcolor=bg_dark,
+            activebackground=accent_blue,
+            highlightthickness=0,
+            command=on_speed_change,
+        )
+        speed_slider.pack(fill="x", pady=(0, 8))
+
+        # 3. Consecutive Confirmation Frames
+        frames_lbl = tk.Label(content, text="Confirmation Frames Required (Anti-Flicker):", font=("Segoe UI", 9, "bold"), bg=bg_card, fg=fg_white)
         frames_lbl.pack(anchor="w")
 
         self.frames_var = tk.IntVar(value=self.config.consecutive_frames_required)
-        frames_val_lbl = tk.Label(content, text=f"{self.config.consecutive_frames_required} frames", font=("Segoe UI", 9), bg=bg_card, fg=accent_blue)
+        frames_val_lbl = tk.Label(content, text=f"{self.config.consecutive_frames_required} frame(s)", font=("Segoe UI", 9), bg=bg_card, fg=accent_blue)
         frames_val_lbl.pack(anchor="e")
 
         def on_frames_change(val: str) -> None:
-            frames_val_lbl.config(text=f"{int(float(val))} frames")
+            frames_val_lbl.config(text=f"{int(float(val))} frame(s)")
 
         frames_slider = tk.Scale(
             content,
@@ -259,9 +362,9 @@ class SettingsDialog:
             highlightthickness=0,
             command=on_frames_change,
         )
-        frames_slider.pack(fill="x", pady=(0, 10))
+        frames_slider.pack(fill="x", pady=(0, 8))
 
-        # 3. Detection Confidence Threshold
+        # 4. Detection Confidence Threshold
         conf_lbl = tk.Label(content, text="Detection Confidence Threshold:", font=("Segoe UI", 9, "bold"), bg=bg_card, fg=fg_white)
         conf_lbl.pack(anchor="w")
 
@@ -286,11 +389,11 @@ class SettingsDialog:
             highlightthickness=0,
             command=on_conf_change,
         )
-        conf_slider.pack(fill="x", pady=(0, 10))
+        conf_slider.pack(fill="x", pady=(0, 8))
 
-        # 4. Camera Index
+        # 5. Camera Index
         cam_frame = tk.Frame(content, bg=bg_card)
-        cam_frame.pack(fill="x", pady=(0, 10))
+        cam_frame.pack(fill="x", pady=(0, 8))
 
         cam_lbl = tk.Label(cam_frame, text="Camera Index (0 = Default Webcam):", font=("Segoe UI", 9, "bold"), bg=bg_card, fg=fg_white)
         cam_lbl.pack(side="left")
@@ -310,7 +413,7 @@ class SettingsDialog:
         )
         cam_spin.pack(side="right")
 
-        # 5. Checkboxes (Audio, Screen Lock, Startup)
+        # 6. Checkboxes (Audio, Screen Lock, Startup)
         self.sound_var = tk.BooleanVar(value=self.config.play_sound)
         sound_chk = tk.Checkbutton(
             content,
@@ -339,7 +442,7 @@ class SettingsDialog:
         )
         lock_chk.pack(anchor="w", pady=(0, 4))
 
-        # Windows Startup Checkbox
+        # Windows Startup Checkbox (with wraplength so text is never cut off)
         is_startup_active = get_startup_shortcut_path().exists() or self.config.start_with_windows
         self.startup_var = tk.BooleanVar(value=is_startup_active)
         startup_chk = tk.Checkbutton(
@@ -352,80 +455,11 @@ class SettingsDialog:
             activebackground=bg_card,
             activeforeground=fg_white,
             font=("Segoe UI", 9),
+            anchor="w",
+            justify="left",
+            wraplength=440,
         )
-        startup_chk.pack(anchor="w")
-
-        # Bottom Button Bar
-        btn_frame = tk.Frame(self.root, bg=bg_dark, pady=6)
-        btn_frame.pack(fill="x", padx=24, pady=(0, 14))
-
-        test_btn = tk.Button(
-            btn_frame,
-            text="🔔 Test Alert",
-            command=self._test_alert,
-            bg="#374151",
-            fg=fg_white,
-            activebackground="#4b5563",
-            activeforeground=fg_white,
-            bd=0,
-            padx=10,
-            pady=6,
-            font=("Segoe UI", 9),
-            relief="flat",
-            cursor="hand2",
-        )
-        test_btn.pack(side="left")
-
-        logs_btn = tk.Button(
-            btn_frame,
-            text="📂 Open Logs",
-            command=self._open_logs,
-            bg="#374151",
-            fg=fg_white,
-            activebackground="#4b5563",
-            activeforeground=fg_white,
-            bd=0,
-            padx=10,
-            pady=6,
-            font=("Segoe UI", 9),
-            relief="flat",
-            cursor="hand2",
-        )
-        logs_btn.pack(side="left", padx=(6, 0))
-
-        save_btn = tk.Button(
-            btn_frame,
-            text="Save Settings",
-            command=self._save_settings,
-            bg=accent_green,
-            fg="#064e3b",
-            activebackground="#34d399",
-            activeforeground="#064e3b",
-            bd=0,
-            padx=14,
-            pady=6,
-            font=("Segoe UI", 9, "bold"),
-            relief="flat",
-            cursor="hand2",
-        )
-        save_btn.pack(side="right", padx=(6, 0))
-
-        cancel_btn = tk.Button(
-            btn_frame,
-            text="Cancel",
-            command=self.root.destroy,
-            bg="#27272a",
-            fg=fg_muted,
-            activebackground="#3f3f46",
-            activeforeground=fg_white,
-            bd=0,
-            padx=10,
-            pady=6,
-            font=("Segoe UI", 9),
-            relief="flat",
-            cursor="hand2",
-        )
-        cancel_btn.pack(side="right")
+        startup_chk.pack(anchor="w", fill="x")
 
     def _open_logs(self) -> None:
         """Open the diagnostics logs directory in Windows Explorer."""
@@ -452,6 +486,7 @@ class SettingsDialog:
 
         self.config_mgr.update(
             cooldown_seconds=int(self.cooldown_var.get()),
+            sample_interval=round(float(self.interval_var.get()), 2),
             consecutive_frames_required=int(self.frames_var.get()),
             confidence_threshold=round(float(self.conf_var.get()), 2),
             camera_index=int(self.cam_var.get()),

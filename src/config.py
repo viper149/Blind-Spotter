@@ -47,7 +47,7 @@ class AppConfig:
     lock_screen_on_alert: bool = False
     confidence_threshold: float = 0.5
     camera_index: int = 0
-    sample_interval: float = 0.7
+    sample_interval: float = 0.2
     consecutive_frames_required: int = 2
     play_sound: bool = True
     start_with_windows: bool = False
@@ -64,7 +64,7 @@ class AppConfig:
         if "camera_index" in filtered:
             filtered["camera_index"] = max(0, int(filtered["camera_index"]))
         if "sample_interval" in filtered:
-            filtered["sample_interval"] = max(0.2, min(5.0, float(filtered["sample_interval"])))
+            filtered["sample_interval"] = max(0.1, min(5.0, float(filtered["sample_interval"])))
         if "consecutive_frames_required" in filtered:
             filtered["consecutive_frames_required"] = max(1, int(filtered["consecutive_frames_required"]))
         if "lock_screen_on_alert" in filtered:
