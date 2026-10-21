@@ -12,6 +12,7 @@ from logging.handlers import RotatingFileHandler
 import os
 import signal
 import sys
+import threading
 from pathlib import Path
 
 # Ensure project root is in sys.path
