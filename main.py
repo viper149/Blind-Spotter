@@ -68,6 +68,14 @@ def setup_logging() -> None:
 
 
 def main() -> None:
+    # 0. Check if invoked in standalone settings mode (isolated Tcl/Tk process)
+    if "--settings" in sys.argv:
+        setup_logging()
+        config_mgr = ConfigManager()
+        settings_dialog = SettingsDialog(config_mgr=config_mgr)
+        settings_dialog.run_standalone()
+        sys.exit(0)
+
     # 1. Enforce single-instance mutex
     mutex_handle = acquire_single_instance_mutex()
     if mutex_handle is None:

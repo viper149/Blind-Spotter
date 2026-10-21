@@ -84,10 +84,18 @@ class ConfigManager:
 
     def __init__(self, filepath: Optional[Path] = None) -> None:
         self.filepath = filepath or get_default_config_path()
+        self._last_mtime: float = 0.0
         self._config: AppConfig = self.load()
 
     @property
     def config(self) -> AppConfig:
+        try:
+            if self.filepath.exists():
+                mtime = self.filepath.stat().st_mtime
+                if mtime > self._last_mtime:
+                    self.load()
+        except Exception:
+            pass
         return self._config
 
     def load(self) -> AppConfig:
@@ -97,6 +105,8 @@ class ConfigManager:
             return default_cfg
 
         try:
+            if self.filepath.exists():
+                self._last_mtime = self.filepath.stat().st_mtime
             with open(self.filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self._config = AppConfig.from_dict(data)

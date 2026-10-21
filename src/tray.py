@@ -4,11 +4,10 @@ Runs silently in the background tray with dynamic status icons and control menus
 
 from __future__ import annotations
 
+import ctypes
 import logging
 import os
 import threading
-import tkinter as tk
-from tkinter import messagebox
 from typing import Optional
 
 from PIL import Image, ImageDraw
@@ -120,23 +119,24 @@ class TrayApp:
         )
 
     def _on_about(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
-        def show_msg() -> None:
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes("-topmost", True)
-            messagebox.showinfo(
+        about_text = (
+            "Blind-Spotter v1.1.0-Enterprise\n"
+            "Stealthy onlooker & shoulder-surfing detection for your desktop.\n\n"
+            "• 100% On-Device & Privacy First\n"
+            "• Low CPU & Background Silent Operation\n"
+            "• Windows Named Mutex & AppData Roaming Isolation\n\n"
+            "An Ashnif Arnob Product\n"
+            "Copyright (c) 2026 Ashnif Arnob. All rights reserved."
+        )
+        try:
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                about_text,
                 "About Blind-Spotter",
-                "Blind-Spotter v1.1.0-Enterprise\n"
-                "Stealthy onlooker & shoulder-surfing detection for your desktop.\n\n"
-                "• 100% On-Device & Privacy First\n"
-                "• Low CPU & Background Silent Operation\n"
-                "• Windows Named Mutex & AppData Roaming Isolation\n\n"
-                "An Ashnif Arnob Product\n"
-                "Copyright (c) 2026 Ashnif Arnob. All rights reserved.",
+                0x00000040 | 0x00010000,  # MB_ICONINFORMATION | MB_SETFOREGROUND
             )
-            root.destroy()
-
-        threading.Thread(target=show_msg, daemon=True).start()
+        except Exception as e:
+            logger.debug("Could not show about dialog: %s", e)
 
     def _on_exit(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
         logger.info("Exiting Blind-Spotter application...")

@@ -103,8 +103,23 @@ class SettingsDialog:
         self._icon_img: Optional[tk.PhotoImage] = None
 
     def show(self) -> None:
-        """Launch the dialog in a dedicated thread to preserve tray responsiveness."""
-        threading.Thread(target=self._run_tk, daemon=True, name="SettingsGUIThread").start()
+        """Launch the dialog in a dedicated sub-process to guarantee Tcl/Tk thread isolation and prevent crashes."""
+        try:
+            if hasattr(sys, "_MEIPASS"):
+                subprocess.Popen([sys.executable, "--settings"])
+            else:
+                main_py = get_resource_path("main.py")
+                subprocess.Popen([sys.executable, str(main_py), "--settings"])
+        except Exception as e:
+            logger.warning("Could not launch settings sub-process (%s). Falling back to in-process thread.", e)
+            threading.Thread(target=self._run_tk, daemon=True, name="SettingsGUIThread").start()
+
+    def run_standalone(self) -> None:
+        """Run dialog directly on main thread of a dedicated settings process."""
+        set_dpi_awareness()
+        self.root = tk.Tk()
+        self._build_ui()
+        self.root.mainloop()
 
     def _run_tk(self) -> None:
         global _active_dialog_root
