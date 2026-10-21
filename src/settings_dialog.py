@@ -1,10 +1,15 @@
 """Sleek dark-mode Settings dialog for Blind-Spotter.
-Allows configuring alert cooldowns, screen locking, camera index, and detection thresholds.
+Allows configuring alert cooldowns, screen locking, camera index, detection thresholds,
+and Windows startup preferences.
 """
 
 from __future__ import annotations
 
+import ctypes
 import logging
+import os
+import subprocess
+import sys
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -13,11 +18,79 @@ from typing import Optional
 
 from src.config import ConfigManager
 from src.notifier import default_notifier
+from src.paths import get_resource_path, get_log_dir
 
 logger = logging.getLogger("blind_spotter.settings")
 
 _dialog_lock = threading.Lock()
 _active_dialog_root: Optional[tk.Tk] = None
+
+
+def set_dpi_awareness() -> None:
+    """Set process DPI awareness for crisp font rendering on high-resolution screens."""
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+
+def get_startup_shortcut_path() -> Path:
+    """Return path to user's Windows Startup shortcut."""
+    appdata = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+    return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "Blind-Spotter.lnk"
+
+
+def set_windows_startup(enable: bool) -> bool:
+    """Enable or disable Blind-Spotter launch at Windows login."""
+    shortcut = get_startup_shortcut_path()
+    if not enable:
+        try:
+            if shortcut.exists():
+                shortcut.unlink()
+                logger.info("Removed startup shortcut: %s", shortcut)
+            return True
+        except Exception as e:
+            logger.warning("Failed to remove startup shortcut: %s", e)
+            return False
+
+    # Create startup shortcut
+    try:
+        target_path: str
+        if hasattr(sys, "_MEIPASS"):
+            target_path = str(Path(sys.executable).resolve())
+        else:
+            vbs_launcher = get_resource_path("run_silent.vbs")
+            if vbs_launcher.exists():
+                target_path = str(vbs_launcher.resolve())
+            else:
+                target_path = str(Path(sys.executable).resolve())
+
+        shortcut_str = str(shortcut.resolve()).replace("'", "''")
+        target_str = target_path.replace("'", "''")
+        work_dir = str(Path(target_path).parent.resolve()).replace("'", "''")
+
+        ps_cmd = (
+            f"$w = New-Object -ComObject WScript.Shell; "
+            f"$s = $w.CreateShortcut('{shortcut_str}'); "
+            f"$s.TargetPath = '{target_str}'; "
+            f"$s.WorkingDirectory = '{work_dir}'; "
+            f"$s.Description = 'Blind-Spotter Stealth Shoulder-Surfing Monitor'; "
+            f"$s.Save()"
+        )
+        subprocess.run(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_cmd],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+        logger.info("Created Windows startup shortcut at %s", shortcut)
+        return True
+    except Exception as e:
+        logger.warning("Failed to create startup shortcut: %s", e)
+        return False
 
 
 class SettingsDialog:
@@ -45,6 +118,7 @@ class SettingsDialog:
                 except Exception:
                     _active_dialog_root = None
 
+            set_dpi_awareness()
             self.root = tk.Tk()
             _active_dialog_root = self.root
 
@@ -60,11 +134,11 @@ class SettingsDialog:
             return
 
         self.root.title("Blind-Spotter Settings")
-        self.root.geometry("460x560")
+        self.root.geometry("480x620")
         self.root.resizable(False, False)
 
         # Set window icon
-        icon_path = Path(__file__).resolve().parent.parent / "assets" / "icon.png"
+        icon_path = get_resource_path("assets/icon.png")
         if icon_path.exists():
             try:
                 self._icon_img = tk.PhotoImage(file=str(icon_path))
@@ -87,12 +161,12 @@ class SettingsDialog:
         self.root.update_idletasks()
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
-        x = (screen_w - 460) // 2
-        y = (screen_h - 560) // 2
+        x = max(0, (screen_w - 480) // 2)
+        y = max(0, (screen_h - 620) // 2)
         self.root.geometry(f"+{x}+{y}")
 
         # Top Header
-        header_frame = tk.Frame(self.root, bg=bg_dark, pady=16)
+        header_frame = tk.Frame(self.root, bg=bg_dark, pady=12)
         header_frame.pack(fill="x", padx=24)
 
         title_lbl = tk.Label(
@@ -115,9 +189,9 @@ class SettingsDialog:
 
         # Main Card Container
         card = tk.Frame(self.root, bg=bg_card, bd=1, relief="flat", highlightbackground=border_color, highlightthickness=1)
-        card.pack(fill="both", expand=True, padx=24, pady=(0, 16))
+        card.pack(fill="both", expand=True, padx=24, pady=(0, 12))
 
-        content = tk.Frame(card, bg=bg_card, padx=16, pady=16)
+        content = tk.Frame(card, bg=bg_card, padx=16, pady=14)
         content.pack(fill="both", expand=True)
 
         # 1. Cooldown Slider
@@ -144,7 +218,7 @@ class SettingsDialog:
             highlightthickness=0,
             command=on_cooldown_change,
         )
-        cooldown_slider.pack(fill="x", pady=(0, 12))
+        cooldown_slider.pack(fill="x", pady=(0, 10))
 
         # 2. Consecutive Confirmation Frames
         frames_lbl = tk.Label(content, text="Consecutive Confirmation Frames (Anti-Flicker):", font=("Segoe UI", 9, "bold"), bg=bg_card, fg=fg_white)
@@ -170,7 +244,7 @@ class SettingsDialog:
             highlightthickness=0,
             command=on_frames_change,
         )
-        frames_slider.pack(fill="x", pady=(0, 12))
+        frames_slider.pack(fill="x", pady=(0, 10))
 
         # 3. Detection Confidence Threshold
         conf_lbl = tk.Label(content, text="Detection Confidence Threshold:", font=("Segoe UI", 9, "bold"), bg=bg_card, fg=fg_white)
@@ -197,11 +271,11 @@ class SettingsDialog:
             highlightthickness=0,
             command=on_conf_change,
         )
-        conf_slider.pack(fill="x", pady=(0, 12))
+        conf_slider.pack(fill="x", pady=(0, 10))
 
         # 4. Camera Index
         cam_frame = tk.Frame(content, bg=bg_card)
-        cam_frame.pack(fill="x", pady=(0, 12))
+        cam_frame.pack(fill="x", pady=(0, 10))
 
         cam_lbl = tk.Label(cam_frame, text="Camera Index (0 = Default Webcam):", font=("Segoe UI", 9, "bold"), bg=bg_card, fg=fg_white)
         cam_lbl.pack(side="left")
@@ -221,7 +295,7 @@ class SettingsDialog:
         )
         cam_spin.pack(side="right")
 
-        # 5. Checkboxes (Audio & Screen Lock)
+        # 5. Checkboxes (Audio, Screen Lock, Startup)
         self.sound_var = tk.BooleanVar(value=self.config.play_sound)
         sound_chk = tk.Checkbutton(
             content,
@@ -234,7 +308,7 @@ class SettingsDialog:
             activeforeground=fg_white,
             font=("Segoe UI", 9),
         )
-        sound_chk.pack(anchor="w", pady=(0, 6))
+        sound_chk.pack(anchor="w", pady=(0, 4))
 
         self.lock_var = tk.BooleanVar(value=self.config.lock_screen_on_alert)
         lock_chk = tk.Checkbutton(
@@ -248,11 +322,27 @@ class SettingsDialog:
             activeforeground=fg_white,
             font=("Segoe UI", 9),
         )
-        lock_chk.pack(anchor="w")
+        lock_chk.pack(anchor="w", pady=(0, 4))
+
+        # Windows Startup Checkbox
+        is_startup_active = get_startup_shortcut_path().exists() or self.config.start_with_windows
+        self.startup_var = tk.BooleanVar(value=is_startup_active)
+        startup_chk = tk.Checkbutton(
+            content,
+            text="🚀 Launch Blind-Spotter automatically when Windows starts",
+            variable=self.startup_var,
+            bg=bg_card,
+            fg=fg_white,
+            selectcolor=bg_dark,
+            activebackground=bg_card,
+            activeforeground=fg_white,
+            font=("Segoe UI", 9),
+        )
+        startup_chk.pack(anchor="w")
 
         # Bottom Button Bar
-        btn_frame = tk.Frame(self.root, bg=bg_dark, pady=4)
-        btn_frame.pack(fill="x", padx=24, pady=(0, 16))
+        btn_frame = tk.Frame(self.root, bg=bg_dark, pady=6)
+        btn_frame.pack(fill="x", padx=24, pady=(0, 14))
 
         test_btn = tk.Button(
             btn_frame,
@@ -263,13 +353,30 @@ class SettingsDialog:
             activebackground="#4b5563",
             activeforeground=fg_white,
             bd=0,
-            padx=12,
+            padx=10,
             pady=6,
             font=("Segoe UI", 9),
             relief="flat",
             cursor="hand2",
         )
         test_btn.pack(side="left")
+
+        logs_btn = tk.Button(
+            btn_frame,
+            text="📂 Open Logs",
+            command=self._open_logs,
+            bg="#374151",
+            fg=fg_white,
+            activebackground="#4b5563",
+            activeforeground=fg_white,
+            bd=0,
+            padx=10,
+            pady=6,
+            font=("Segoe UI", 9),
+            relief="flat",
+            cursor="hand2",
+        )
+        logs_btn.pack(side="left", padx=(6, 0))
 
         save_btn = tk.Button(
             btn_frame,
@@ -280,13 +387,13 @@ class SettingsDialog:
             activebackground="#34d399",
             activeforeground="#064e3b",
             bd=0,
-            padx=16,
+            padx=14,
             pady=6,
             font=("Segoe UI", 9, "bold"),
             relief="flat",
             cursor="hand2",
         )
-        save_btn.pack(side="right", padx=(8, 0))
+        save_btn.pack(side="right", padx=(6, 0))
 
         cancel_btn = tk.Button(
             btn_frame,
@@ -297,13 +404,22 @@ class SettingsDialog:
             activebackground="#3f3f46",
             activeforeground=fg_white,
             bd=0,
-            padx=12,
+            padx=10,
             pady=6,
             font=("Segoe UI", 9),
             relief="flat",
             cursor="hand2",
         )
         cancel_btn.pack(side="right")
+
+    def _open_logs(self) -> None:
+        """Open the diagnostics logs directory in Windows Explorer."""
+        log_dir = get_log_dir()
+        try:
+            os.startfile(str(log_dir))
+        except Exception as e:
+            logger.warning("Could not open logs folder: %s", e)
+            messagebox.showinfo("Logs Directory", f"Logs directory:\n{log_dir}")
 
     def _test_alert(self) -> None:
         """Trigger a safe test alert with sound and toast (without locking computer)."""
@@ -315,7 +431,10 @@ class SettingsDialog:
         )
 
     def _save_settings(self) -> None:
-        """Commit updated values to config.json."""
+        """Commit updated values to config and sync Windows startup preference."""
+        startup_enabled = bool(self.startup_var.get())
+        set_windows_startup(startup_enabled)
+
         self.config_mgr.update(
             cooldown_seconds=int(self.cooldown_var.get()),
             consecutive_frames_required=int(self.frames_var.get()),
@@ -323,6 +442,7 @@ class SettingsDialog:
             camera_index=int(self.cam_var.get()),
             play_sound=bool(self.sound_var.get()),
             lock_screen_on_alert=bool(self.lock_var.get()),
+            start_with_windows=startup_enabled,
         )
         logger.info("Settings updated via GUI dialog.")
         if self.root:

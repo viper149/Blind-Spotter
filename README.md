@@ -27,15 +27,20 @@ Working on confidential code, financial dashboards, or personal messages in publ
 ## ✨ Features
 
 - 👁️ **Silent Background Tray App:** Runs quietly in the Windows notification area (System Tray). No annoying console windows, no pop-up video previews, and zero clutter.
+- 📦 **Single-File Windows Installer:** Instant, zero-dependency installation via `installer.exe` or `Blind-Spotter-Setup.exe`. Installs per-user without requiring administrator privileges or Python!
 - ⚡ **Dual-Engine Face Detector:**
   - **Primary:** High-accuracy OpenCV DNN Single Shot MultiBox Detector (SSD) with ResNet-10.
   - **Fallback:** Built-in OpenCV Haar Cascade for instant, zero-dependency reliability.
-- 🧠 **Temporal Anti-Flicker Filter:** Requires 2 consecutive positive detections before triggering an alert, eliminating false alarms caused by people briefly passing by.
+- 🧠 **Temporal Anti-Flicker Filter:** Requires consecutive positive detections before triggering an alert, eliminating false alarms caused by people briefly passing by.
+- 🛡️ **Enterprise-Ready Process Safety:**
+  - **Windows Named Mutex:** Prevents duplicate background processes from colliding on webcam capture.
+  - **User Profile Isolation:** Stores settings in `%APPDATA%\Blind-Spotter` and rotating diagnostics logs in `%LOCALAPPDATA%\Blind-Spotter\logs`.
+  - **Camera Re-acquisition:** Automatically handles laptop sleep/wake cycles and camera reconnections.
 - 🔋 **CPU & Battery Optimized:** Samples only 1–2 frames per second at 640x480 resolution, using less than 1% CPU on modern processors.
 - 🔔 **Native Windows Alerts:**
   - Native Windows 10 & 11 Toast Notifications with audible exclamation chime.
   - Optional **Automatic Screen Lock** (`LockWorkStation`) to protect confidential data instantaneously.
-- ⚙️ **Modern Dark-Mode Settings GUI:** Easily adjust cooldown timers (default: 10s), detection sensitivity, camera index, sound, and screen-lock toggles via a sleek Tkinter dialog.
+- ⚙️ **Modern Dark-Mode Settings GUI:** Easily adjust cooldown timers, detection sensitivity, camera index, sound, screen-lock, and Windows startup toggles.
 - 🔕 **One-Click Pause / Resume:** Easily pause detection during team meetings or video calls right from the system tray menu.
 - 🔒 **100% Local & Privacy-First:** No frames or facial data are ever saved to disk or transmitted over the internet.
 
@@ -105,13 +110,30 @@ Blind-Spotter/
 
 ## 🚀 Getting Started
 
-### 1. Prerequisites
+### Option A: Standalone Windows Installer (Recommended for End Users)
+No Python, Git, or developer dependencies required!
+
+1. Download or locate `Blind-Spotter-Setup.exe` (or `installer.exe`).
+2. Double-click the installer.
+3. Choose your options (Desktop shortcut, Start Menu shortcut, Start with Windows) and click **Install Now**.
+4. Blind-Spotter installs to your user profile (`%LOCALAPPDATA%\Programs\Blind-Spotter`) and runs immediately in your System Tray!
+
+#### Silent Enterprise Deployment (IT Admins):
+To deploy headlessly via PowerShell, SCCM, or Microsoft Intune:
+```powershell
+installer.exe /S
+```
+
+---
+
+### Option B: Developer Setup (From Source)
+
+#### 1. Prerequisites
 - **Operating System:** Windows 10 or Windows 11 (64-bit)
 - **Python:** Python 3.9 or higher (Python 3.12+ recommended)
 - **Webcam:** Any built-in or USB webcam
 
-### 2. Installation
-
+#### 2. Installation
 Clone this repository and navigate into the folder:
 ```powershell
 git clone https://github.com/viper149/Blind-Spotter.git
@@ -123,8 +145,7 @@ Install the required Python packages:
 pip install -r requirements.txt
 ```
 
-### 3. Running Unit Tests (Optional)
-
+#### 3. Running Unit Tests
 Verify all components and test suites:
 ```powershell
 python -m unittest discover -s tests -v
@@ -132,11 +153,10 @@ python -m unittest discover -s tests -v
 
 ---
 
-## 🎮 How to Run
+## 🎮 How to Run (From Source)
 
-### Method 1: Invisible Silent Background Mode (Recommended)
+### Method 1: Invisible Silent Background Mode
 Double-click `run_silent.vbs`.
-
 - Starts **Blind-Spotter** with zero command prompts or flashing console windows.
 - The stealth eye icon will appear in your Windows System Tray (near the clock).
 

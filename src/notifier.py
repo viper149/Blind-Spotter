@@ -12,9 +12,17 @@ import winsound
 from pathlib import Path
 from typing import Any, Optional
 
+from src.paths import get_resource_path
+
 logger = logging.getLogger("blind_spotter.notifier")
 
-ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "icon.png"
+
+def get_icon_path() -> Path:
+    """Dynamically resolve application branding icon."""
+    return get_resource_path("assets/icon.png")
+
+
+ICON_PATH = get_icon_path()
 
 
 class Notifier:
@@ -55,6 +63,13 @@ class Notifier:
         if lock_screen:
             threading.Thread(target=self._lock_workstation, daemon=True, name="LockScreenThread").start()
 
+        # 4. If pystray icon is connected, flash tray alert
+        if self.tray_icon is not None and hasattr(self.tray_icon, "pulse_alert"):
+            try:
+                self.tray_icon.pulse_alert()
+            except Exception as e:
+                logger.debug("Could not pulse tray icon: %s", e)
+
     def _play_alert_sound(self) -> None:
         try:
             # Play standard Windows exclamation beep
@@ -65,6 +80,7 @@ class Notifier:
     def _send_toast(self, title: str, message: str) -> None:
         """Send native notification using pystray, WinRT via PowerShell, or plyer."""
         sent = False
+        icon = get_icon_path()
 
         # Attempt 1: If pystray icon is active, use native tray notification
         if self.tray_icon is not None and hasattr(self.tray_icon, "notify"):
@@ -80,8 +96,8 @@ class Notifier:
                 # Escape single quotes
                 safe_title = title.replace("'", "''")
                 safe_msg = message.replace("'", "''")
-                if ICON_PATH.exists():
-                    safe_icon = str(ICON_PATH.resolve()).replace("\\", "/")
+                if icon.exists():
+                    safe_icon = str(icon.resolve()).replace("\\", "/")
                     ps_script = (
                         "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; "
                         "$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastImageAndText02); "
@@ -122,7 +138,7 @@ class Notifier:
                     title=title,
                     message=message,
                     app_name="Blind-Spotter",
-                    app_icon=str(ICON_PATH) if ICON_PATH.exists() else None,
+                    app_icon=str(icon) if icon.exists() else None,
                     timeout=5,
                 )
                 sent = True

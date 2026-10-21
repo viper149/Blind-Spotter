@@ -16,12 +16,9 @@ import numpy as np
 
 from src.config import AppConfig, ConfigManager
 from src.notifier import Notifier, default_notifier
+from src.paths import get_resource_path
 
 logger = logging.getLogger("blind_spotter.detector")
-
-MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
-PROTO_PATH = MODELS_DIR / "deploy.prototxt"
-CAFFE_PATH = MODELS_DIR / "res10_300x300_ssd_iter_140000_fp16.caffemodel"
 
 
 class OnlookerDetector:
@@ -74,10 +71,16 @@ class OnlookerDetector:
         return self._latest_face_count
 
     def _init_face_detectors(self) -> None:
-        """Initialize OpenCV DNN SSD detector or fallback to Haar Cascade."""
-        if PROTO_PATH.exists() and CAFFE_PATH.exists():
+        """Initialize OpenCV DNN SSD detector or fallback to Haar Cascade.
+        Resolves model weights dynamically using get_resource_path() for
+        compatibility with both developer checkout and frozen PyInstaller bundles.
+        """
+        proto_path = get_resource_path("models/deploy.prototxt")
+        caffe_path = get_resource_path("models/res10_300x300_ssd_iter_140000_fp16.caffemodel")
+
+        if proto_path.exists() and caffe_path.exists():
             try:
-                self._dnn_net = cv2.dnn.readNetFromCaffe(str(PROTO_PATH), str(CAFFE_PATH))
+                self._dnn_net = cv2.dnn.readNetFromCaffe(str(proto_path), str(caffe_path))
                 self._backend_name = "OpenCV DNN (SSD ResNet-10)"
                 logger.info("Loaded primary face detector: %s", self._backend_name)
                 return
@@ -85,8 +88,8 @@ class OnlookerDetector:
                 logger.warning("Failed to load DNN model (%s). Falling back to Haar Cascade.", e)
 
         # Fallback to Haar Cascade
-        haar_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         try:
+            haar_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
             self._haar_cascade = cv2.CascadeClassifier(haar_path)
             self._backend_name = "Haar Cascade (OpenCV Default)"
             logger.info("Loaded fallback face detector: %s", self._backend_name)
@@ -191,9 +194,10 @@ class OnlookerDetector:
         return self._paused
 
     def _detection_loop(self) -> None:
-        """Continuous low-rate sampling loop."""
+        """Continuous low-rate sampling loop with resilient camera auto-reconnect."""
         cap: Optional[cv2.VideoCapture] = None
         current_camera_idx: Optional[int] = None
+        consecutive_read_failures: int = 0
 
         while self._running:
             if self._paused:
@@ -201,6 +205,7 @@ class OnlookerDetector:
                     cap.release()
                     cap = None
                     current_camera_idx = None
+                    consecutive_read_failures = 0
                 time.sleep(0.5)
                 continue
 
@@ -216,6 +221,7 @@ class OnlookerDetector:
                 cap.release()
                 cap = None
                 current_camera_idx = None
+                consecutive_read_failures = 0
 
             # Ensure camera is opened
             if cap is None or not cap.isOpened():
@@ -232,15 +238,26 @@ class OnlookerDetector:
                     continue
 
                 current_camera_idx = camera_idx
+                consecutive_read_failures = 0
                 # Set low resolution for minimal CPU & memory usage (640x480)
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
             ret, frame = cap.read()
             if not ret or frame is None:
-                logger.debug("Failed to grab camera frame. Retrying...")
+                consecutive_read_failures += 1
+                logger.debug("Failed to grab camera frame (failure %d).", consecutive_read_failures)
+                if consecutive_read_failures >= 5:
+                    logger.warning("Multiple consecutive camera read failures. Resetting video capture handle...")
+                    cap.release()
+                    cap = None
+                    current_camera_idx = None
+                    consecutive_read_failures = 0
                 time.sleep(0.5)
                 continue
+
+            # Successful frame read
+            consecutive_read_failures = 0
 
             try:
                 faces = self._detect_faces(frame)

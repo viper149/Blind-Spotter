@@ -8,6 +8,7 @@ Copyright (c) 2026 Ashnif Arnob
 from __future__ import annotations
 
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import signal
 import sys
@@ -21,24 +22,63 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.config import ConfigManager
 from src.detector import OnlookerDetector
 from src.notifier import Notifier
+from src.paths import (
+    acquire_single_instance_mutex,
+    release_single_instance_mutex,
+    get_log_dir,
+)
 from src.settings_dialog import SettingsDialog
 from src.tray import TrayApp
 
 
 def setup_logging() -> None:
-    """Setup logging format and levels."""
-    log_level = logging.INFO if os.environ.get("BLIND_SPOTTER_DEBUG") else logging.WARNING
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s [%(levelname)s] (%(name)s) %(message)s",
-        datefmt="%H:%M:%S",
+    """Setup dual logging: console (debug) and enterprise rotating file."""
+    log_dir = get_log_dir()
+    log_file = log_dir / "blind_spotter.log"
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # Formatter
+    formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] (%(name)s) %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
+
+    # 1. Rotating File Handler (2MB max, 3 backups)
+    try:
+        file_handler = RotatingFileHandler(
+            str(log_file),
+            maxBytes=2 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(logging.INFO)
+        root_logger.addHandler(file_handler)
+    except Exception as e:
+        print(f"Warning: Could not configure file logger at {log_file}: {e}", file=sys.stderr)
+
+    # 2. Console Handler (if running interactively)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    console_level = logging.DEBUG if os.environ.get("BLIND_SPOTTER_DEBUG") else logging.WARNING
+    console_handler.setLevel(console_level)
+    root_logger.addHandler(console_handler)
 
 
 def main() -> None:
+    # 1. Enforce single-instance mutex
+    mutex_handle = acquire_single_instance_mutex()
+    if mutex_handle is None:
+        # Another instance is already active
+        print("Blind-Spotter is already running in the Windows System Tray.")
+        sys.exit(0)
+
+    # 2. Initialize enterprise logging
     setup_logging()
     logger = logging.getLogger("blind_spotter.main")
-    logger.info("Initializing Blind-Spotter...")
+    logger.info("Initializing Blind-Spotter v1.1.0-Enterprise...")
 
     config_mgr = ConfigManager()
     notifier = Notifier()
@@ -51,6 +91,7 @@ def main() -> None:
         detector.stop()
         if tray_app.icon is not None:
             tray_app.icon.stop()
+        release_single_instance_mutex(mutex_handle)
         sys.exit(0)
 
     try:
@@ -67,6 +108,7 @@ def main() -> None:
         tray_app.run()
     finally:
         detector.stop()
+        release_single_instance_mutex(mutex_handle)
         logger.info("Blind-Spotter terminated cleanly.")
 
 

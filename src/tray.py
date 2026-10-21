@@ -5,6 +5,7 @@ Runs silently in the background tray with dynamic status icons and control menus
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import tkinter as tk
 from tkinter import messagebox
@@ -15,6 +16,7 @@ import pystray
 from pystray import MenuItem as item
 
 from src.detector import OnlookerDetector
+from src.paths import get_log_dir
 from src.settings_dialog import SettingsDialog
 
 logger = logging.getLogger("blind_spotter.tray")
@@ -85,9 +87,10 @@ class TrayApp:
             item(
                 lambda text: "Resume Monitoring" if self.detector.is_paused else "Pause Monitoring",
                 self._on_toggle_pause,
-                default=True,  # Primary click action
+                default=True,  # Primary double-click action
             ),
             item("Settings (Adjust Cooldown)...", self._on_open_settings),
+            item("Open Diagnostics Logs", self._on_open_logs),
             item("Test Alert Notification", self._on_test_alert),
             pystray.Menu.SEPARATOR,
             item("About Blind-Spotter", self._on_about),
@@ -100,6 +103,13 @@ class TrayApp:
 
     def _on_open_settings(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
         self.settings_dialog.show()
+
+    def _on_open_logs(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        log_dir = get_log_dir()
+        try:
+            os.startfile(str(log_dir))
+        except Exception as e:
+            logger.warning("Could not open logs folder: %s", e)
 
     def _on_test_alert(self, icon: pystray.Icon, item: pystray.MenuItem) -> None:
         self.detector.notifier.trigger_onlooker_alert(
@@ -116,10 +126,11 @@ class TrayApp:
             root.attributes("-topmost", True)
             messagebox.showinfo(
                 "About Blind-Spotter",
-                "Blind-Spotter v1.0.0\n"
+                "Blind-Spotter v1.1.0-Enterprise\n"
                 "Stealthy onlooker & shoulder-surfing detection for your desktop.\n\n"
                 "• 100% On-Device & Privacy First\n"
-                "• Low CPU & Background Silent Operation\n\n"
+                "• Low CPU & Background Silent Operation\n"
+                "• Windows Named Mutex & AppData Roaming Isolation\n\n"
                 "An Ashnif Arnob Product\n"
                 "Copyright (c) 2026 Ashnif Arnob. All rights reserved.",
             )

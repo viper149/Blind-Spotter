@@ -37,3 +37,22 @@ env/
 
 # Local logs
 *.log
+
+# Agent governance and internal logs
+.agents/
+RESOURCE_ALLOCATION.md
+resource_allocation.json
+PHASE_PROGRESS.md
+QA-FULL-SOLUTION-TEST-REPORT.md
+
+# Packaging & installer outputs
+publish/
+installer_output/
+test_install_dir/
+output/
+*.spec
+*.exe
+*.msi
+setup.exe
+*.zip
+tools/app_payload.zip
